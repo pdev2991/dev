@@ -1,0 +1,8 @@
+sudo wget https://cloudera-scm-packages.s3.amazonaws.com/cloudera-setup-parcels/cm5.14.1-centos7.tar.gz
+sudo tar zxvf cm5.14.1-centos7.tar.gz -C /var/www/html/
+cd /var/www/html
+sudo mkdir cdh5.14.0
+cd cdh5.14.0
+sudo wget https://cloudera-scm-packages.s3.amazonaws.com/cloudera-setup-parcels/CDH-5.14.0-1.cdh5.14.0.p0.24-el7.parcel
+sudo wget https://cloudera-scm-packages.s3.amazonaws.com/cloudera-setup-parcels/manifest.json
+sudo chmod -R 777 /var/www/html/cdh5.14.0

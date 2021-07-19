@@ -1,0 +1,30 @@
+---
+
+- include: hadoop-prerequisite.yml  
+
+-
+  name: Cloudera Manager setup
+  hosts:  hadoop-admin
+  become: yes
+  tasks:  
+    - name: installing CM packages on hadoop-admin
+      script: /etc/ansible/scripts/cm-admin.sh
+
+    - name: install mariadb
+      yum:
+        name: mariadb-server
+        state: latest
+
+    - name: start mariadb
+      service:
+        name: mariadb
+        enabled: true
+        state: started
+...
+
+	  
+	  
+	  
+
+    
+	
