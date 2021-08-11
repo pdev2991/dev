@@ -1,0 +1,340 @@
+pre-setup:
+
+login to the GCP instances and to connect to the gcp instances,generate you ssh keys and save your "id_rsa.pub"key to the every GCP instance which you want to login.
+
+Copy private key "id_rsa" generated earlier  from your third party tool (gitbash) to One of the GCP instance.
+
+Devendra@DESKTOP-1N2ELTG MINGW64 /c/users/Devendra/.ssh
+$ pwd
+/c/users/Devendra/.ssh
+$ ls
+id_rsa  id_rsa.pub  known_hosts
+
+Copy private key "id_rsa" generated earlier  from your third party tool (gitbash) to One of the GCP instance.
+
+$ scp -i id_rsa  /c/users/Devendra/.ssh/id_rsa Devendra@146.148.62.12:~/.ssh/
+id_rsa                                 
+
+1- install ansible and  web server on cloudera manager machiene.
+sudo yum install -y ansible
+2- add hosts file
+vim /etc/ansible/hosts
+[Devendra@hadoop-admin ansible]$ sudo vim hosts
+vim hosts
+[all]
+hadoop-admin      ansible_user=Devendra 
+hadoop-slave-1    ansible_user=Devendra
+hadoop-slave-2    ansible_user=Devendra
+hadoop-slave-3    ansible_user=Devendra
+
+3- web server installation 
+sudo yum -y install httpd;sudo systemctl start httpd;sudo systemctl status httpd;sudo chkconfig httpd on
+
+
+change httpd.conf file settings:
+
+sudo vim /etc/httpd/conf/httpd.conf
+# AddType allows you to add to or override the MIME configuration
+    #AddType application/x-gzip .tgz
+    AddType application/x-compress .Z
+    AddType application/x-gzip .gz .tgz
+    AddType application/x-gzip .gz .tgz .parcel     --> Add this line
+
+4-sudo mkdir /etc/ansible/scripts and create below scripts:
+/etc/ansible/scripts
+[Devendra@hadoop-admin scripts]$ ls -l
+total 961900
+-rw-r--r--. 1 root root       218 Jan 25 07:27 agent-config.ini.sh
+-rw-r--r--. 1 root root        84 Jan 25 07:26 agent.sh
+-rwxr-xr-x. 1 root root       104 Jan 25 07:18 cloudera-repo-setup-yum-tools.sh
+-rw-r--r--. 1 root root       331 Jan 25 07:16 clusterpre.sh
+-rw-r--r--. 1 root root       108 Jan 25 07:25 cm-admin.sh
+-rwxr-xr-x. 1 root root       408 Jan 25 07:31 cm-cdh-download.sh
+-rw-r--r--. 1 root root       247 Jan 25 07:17 disable-thp.sh
+
+script content:
+ 
+sudo vim agent-config.ini.sh
+sudo sed -i s/localhost/hadoop-admin/g /etc/cloudera-scm-agent/config.ini
+sudo systemctl start cloudera-scm-agent
+sudo systemctl enable cloudera-scm-agent
+cat /etc/cloudera-scm-agent/config.ini | grep -i 'server_host'
+
+sudo vim agent.sh
+sudo yum install -y oracle-j2sdk1.7 cloudera-manager-daemons cloudera-manager-agent
+
+sudo vim cloudera-repo-setup-yum-tools.sh
+sudo yum -y install wget rsync createrepo yum-utils 
+sudo mkdir -p /var/www/html
+sudo systemctl restart httpd
+
+sudo vim clusterpre.sh
+sudo echo "vm.swappiness = 1" >> /etc/sysctl.conf
+sudo sed -i 's/SELINUX=enforcing/SELINUX=disabled/' /etc/selinux/config
+sudo sed -i 's/SELINUX=enforcing/SELINUX=disabled/' /etc/sysconfig/selinux
+systemctl stop firewalld
+systemctl disable firewalld
+sudo yum  -y  install ntp
+sudo systemctl enable ntpd
+sudo systemctl start ntpd
+
+sudo vim cm-admin.sh
+sudo yum install -y oracle-j2sdk1.7 cloudera-manager-daemons cloudera-manager-server cloudera-manager-agent
+
+sudo vim cm-cdh-download.sh
+sudo wget http://archive.cloudera.com/cm5/repo-as-tarball/5.14.1/cm5.14.1-centos7.tar.gz
+sudo tar zxvf cm5.14.1-centos7.tar.gz -C /var/www/html/
+cd /var/www/html
+sudo mkdir cdh5.14.0
+cd cdh5.14.0
+sudo wget http://archive.cloudera.com/cdh5/parcels/5.14.0/CDH-5.14.0-1.cdh5.14.0.p0.24-el7.parcel
+sudo wget http://archive.cloudera.com/cdh5/parcels/5.14.0/manifest.json
+sudo chmod -R 777 /var/www/html/cdh5.14.0
+
+sudo vim disable-thp.sh
+sudo chmod 755 /etc/init.d/disable-thp
+sudo systemctl daemon-reload
+sudo systemctl start disable-thp.service
+sudo systemctl enable disable-thp.service
+cat /sys/kernel/mm/transparent_hugepage/enabled
+cat /sys/kernel/mm/transparent_hugepage/defrag
+
+5- give execute permisssion to cloudera-repo-setup-yum-tools.sh and cm-cdh-download.sh.
+sudo chmod +x cloudera-repo-setup-yum-tools.sh
+sudo chmod +x cm-cdh-download.sh
+
+6- Run cloudera-repo-setup-yum-tools.sh.
+./cloudera-repo-setup-yum-tools.sh
+
+7- Download cm-cdh parcels.
+./cm-cdh-download.sh
+
+8- create cloudera CM repo files under yum.repos.d.
+
+sudo vim /etc/yum.repos.d/cloudera-manager.repo
+[cloudera-manager.repo]                           
+name=cloudera-manager.5.14.1
+baseurl=http://hadoop-admin/cm/5.14.1/
+gpgcheck=0
+
+9- create disable-THP script under /etc/init.d.
+cd /etc/init.d
+sudo vim disable-thp
+
+#!/bin/bash
+### BEGIN INIT INFO
+# Provides:          disable-thp
+# Required-Start:    $local_fs
+# Required-Stop:
+# X-Start-Before:    couchbase-server
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: Disable THP
+# Description:       disables Transparent Huge Pages (THP) on boot
+### END INIT INFO
+case $1 in
+start)
+  if [ -d /sys/kernel/mm/transparent_hugepage ]; then
+    echo 'never' > /sys/kernel/mm/transparent_hugepage/enabled
+    echo 'never' > /sys/kernel/mm/transparent_hugepage/defrag
+  elif [ -d /sys/kernel/mm/redhat_transparent_hugepage ]; then
+    echo 'never' > /sys/kernel/mm/redhat_transparent_hugepage/enabled
+    echo 'never' > /sys/kernel/mm/redhat_transparent_hugepage/defrag
+  else
+    return 0
+  fi
+;;
+esac
+........................................................................................
+Setup : create two ansible playbooks hadoop-prerequisite.yml and cm-cdh.yml for setup.
+
+YML contents :
+hadoop-prerequisite.yml :
+---
+- name: Hadoop pre-requisites
+  hosts:  all
+  become: yes
+  tasks:
+    - name: Testing ping on all hosts
+      ping:
+
+    - name: synchronize cloudera-manager.repo across all hosts
+      synchronize: src=/etc/yum.repos.d/ dest=/etc/yum.repos.d/
+
+    - name: making repo cache
+      command: yum makecache
+
+    - name: cleaning all
+      command: yum clean all
+
+    - name: Running clusterpre.sh on all hosts
+      script: /etc/ansible/scripts/clusterpre.sh
+
+    - name: copying disable-thp service to /etc/init.d of all hosts
+      copy: src=/etc/init.d/disable-thp dest=/etc/init.d
+
+
+    - name: Running disable-thp.sh on all hosts
+      script: /etc/ansible/scripts/disable-thp.sh
+
+    - name: cloudera agent installations
+      script: /etc/ansible/scripts/agent.sh
+
+    - name: Running config.ini script
+      script: /etc/ansible/scripts/agent-config.ini.sh
+
+    - name: installing mysql-connector on all hosts
+      command: yum install -y mysql-connector-java
+
+--------------------------------------------------------
+cm-cdh.yml:
+---
+
+- include: hadoop-prerequisite.yml  
+
+-
+  name: Cloudera Manager setup
+  hosts:  hadoop-admin
+  become: yes
+  tasks:  
+    - name: installing CM packages on hadoop-admin
+      script: /etc/ansible/scripts/cm-admin.sh
+
+    - name: install mariadb
+      yum:
+        name: mariadb-server
+        state: latest
+
+    - name: start mariadb
+      service:
+        name: mariadb
+        enabled: true
+        state: started
+...
+
+---------------------------------------------------------------------------
+run playbooks:
+ansible-playbook -i /etc/ansible/hosts cm-cdh.yml
+
+reboot all servers to take changes effect.
+ansible all -i /etc/ansible/hosts -a "reboot" --become
+
+Post-setup:
+10 - Mysql installation.
+sudo /usr/bin/mysql_secure_installation
+
+11- login with root id and create temp user:
+
+mysql -uroot -proot
+create user 'temp'@'%' identified by 'temp';
+grant all privileges on *.* to 'temp'@'%' with grant option;
+flush privileges;
+exit;
+
+check user temp:
+mysql -utemp -ptemp
+
+12- scm database creation.
+
+sudo /usr/share/cmf/schema/scm_prepare_database.sh mysql -h localhost -utemp -ptemp --scm-host localhost scm scm scm 
+
+output:
+[Devendra@hadoop-admin ~]$ sudo /usr/share/cmf/schema/scm_prepare_database.sh mysql -h localhost -utemp -ptemp --scm-host localhost scm scm scm
+JAVA_HOME=/usr/java/jdk1.7.0_67-cloudera/
+Verifying that we can write to /etc/cloudera-scm-server
+Creating SCM configuration file in /etc/cloudera-scm-server
+Executing:  /usr/java/jdk1.7.0_67-cloudera//bin/java -cp /usr/share/java/mysql-connector-java.jar:/usr/share/java/oracle-connector-java.jar:/usr/share/cmf/schema/../lib/* com.cloudera.enterprise.dbutil.DbCommandExecutor /etc/cloudera-scm-server/db.properties com.cloudera.cmf.db.
+[                          main] DbCommandExecutor              INFO  Successfully connected to database.
+All done, your SCM database is configured correctly!
+
+note: you may get error in this step.
+Error:
+Exception in thread "main" java.lang.UnsupportedClassVersionError: com/microsoft/sqlserver/jdbc/SQLServerDriver : Unsupported major.minor version 52.0
+	
+solution: set the  already present java version in " /etc/default/
+
+edit the cloudera-scm-server file :
+
+###################FILE-Content################################
+
+# Specify any command line arguments for the Cloudera SCM Server here.
+#
+export JAVA_HOME=/usr/java/jdk1.7.0_67-cloudera/   we need to add java path according to our java version present on system.
+#############################################################################################################
+
+13- Other cloudera required dbs creation 
+
+mysql -uroot -proot
+
+create database reportmanager;
+create user 'reportmanager'@'%' identified by 'root';
+grant all privileges on reportmanager.* to 'reportmanager'@'%';
+
+create database hue;
+create user 'hue'@'%' identified by 'root';
+grant all privileges on hue.* to 'hue'@'%';
+
+
+create database hive;
+create user 'hive'@'%' identified by 'root';
+grant all privileges on hive.* to 'hive'@'%';
+
+create database oozie;
+create user 'oozie'@'%' identified by 'root';
+grant all privileges on oozie.* to 'oozie'@'%';
+
+create database sentry;
+create user 'sentry'@'%' identified by 'root';
+grant all privileges on sentry.* to 'sentry'@'%';
+
+flush privileges;
+#####################################
+check dbs:
+MariaDB [(none)]> show databases;
++--------------------+
+| Database           |
++--------------------+
+| information_schema |
+| hive               |
+| hue                |
+| mysql              |
+| oozie              |nbcv  
+| performance_schema |
+| reportmanager      |
+| scm                |
++--------- 
+14- start cloudera Manager server.
+
+sudo service cloudera-scm-server start
+sudo service cloudera-scm-server status
+sudo chkconfig cloudera-scm-server  on
+sudo chkconfig cloudera-scm-agent on
+sudo tail -f /var/log/cloudera-scm-server/cloudera-scm-server.log  ###if you get this line "WebServerImpl:org.mortbay.log: Started SelectChannelConnector@0.0.0.0:7180 then its started"
+netstat -tnlpu | grep -i 7180
+
+15- Now login to cloudera-manager and continue with inatallation process
+*********************************************************************
+add local parcel repository path : /var/www/html/cdh5.14.0       ---> change the ownership of this dir to cloudera-scm:cloudera-scm. 
+                                                                      sudo chown -R cloudera-scm:cloudera-scm /var/www/html/cdh5.14.0 and restart httpd.
+    Remote parcel repository URLs: http://hadoop-admin/cdh5.14.0 
+
+parcel will be show if correctly configured.select parcel and continue with the installation. 
+give required dbs credentials.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ 
+ 

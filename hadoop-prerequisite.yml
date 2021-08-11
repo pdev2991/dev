@@ -1,0 +1,35 @@
+---
+- name: Hadoop pre-requisites
+  hosts:  all
+  become: yes
+  tasks:
+    - name: Testing ping on all hosts
+      ping:
+
+    - name: synchronize cloudera-manager.repo across all hosts
+      synchronize: src=/etc/yum.repos.d/ dest=/etc/yum.repos.d/
+
+    - name: making repo cache
+      command: yum makecache
+
+    - name: cleaning all
+      command: yum clean all
+
+    - name: Running clusterpre.sh on all hosts
+      script: /etc/ansible/scripts/clusterpre.sh
+
+    - name: copying disable-thp service to /etc/init.d of all hosts
+      copy: src=/etc/init.d/disable-thp dest=/etc/init.d
+
+
+    - name: Running disable-thp.sh on all hosts
+      script: /etc/ansible/scripts/disable-thp.sh
+
+    - name: cloudera agent installations
+      script: /etc/ansible/scripts/agent.sh
+
+    - name: Running config.ini script
+      script: /etc/ansible/scripts/agent-config.ini.sh
+
+    - name: installing mysql-connector on all hosts
+      command: yum install -y mysql-connector-java

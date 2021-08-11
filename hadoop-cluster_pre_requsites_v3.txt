@@ -1,0 +1,746 @@
+﻿#########################################################################################################################
+How to setup cloudera-scm-server and cloudera-scm-agent.service
+
+login to the GCP instances and to connect to the gcp instances,generate you ssh keys and save your "id_rsa.pub"key to the every GCP instance which you want to login.
+
+Copy private key "id_rsa" generated earlier  from your third party tool (gitbash) to One of the GCP instance.
+
+Devendra@DESKTOP-1N2ELTG MINGW64 /c/users/Devendra/.ssh
+$ pwd
+/c/users/Devendra/.ssh
+$ ls
+id_rsa  id_rsa.pub  known_hosts
+
+Copy private key "id_rsa" generated earlier  from your third party tool (gitbash) to One of the GCP instance.
+
+$ scp -i id_rsa  /c/users/Devendra/.ssh/id_rsa Devendra@146.148.62.12:~/.ssh/
+id_rsa                                                                                         
+
+connect to the instance(hadoop-admin) using ssh:
+
+$ ssh -i id_rsa Devendra@146.148.62.12
+Last login: Sat Mar 28 08:59:36 2020 from 45.112.40.202
+[Devendra@hadoop-admin ~]$ cd ~/.ssh
+[Devendra@hadoop-admin .ssh]$ ls
+authorized_keys  id_rsa
+change the permission of the key to 600.
+chmod 600 id_rsa
+
+Now you have private key also on one host (in this case hadoop-admin).So try to login to other instances from this instances,to check whether you are able to login without password.
+
+[Devendra@hadoop-admin ~]$ ssh -i /home/Devendra/id_rsa hadoop-slave-1
+Last login: Mon Mar 30 16:03:45 2020 from hadoop-admin.us-central1-a.c.focal-baton-271917.internal
+[Devendra@hadoop-slave-1 ~]$ exit
+logout
+Connection to hadoop-slave-1 closed.
+[Devendra@hadoop-admin ~]$ ssh -i /home/Devendra/id_rsa hadoop-slave-2
+Last login: Mon Mar 30 16:03:58 2020 from hadoop-admin.us-central1-a.c.focal-baton-271917.internal
+[Devendra@hadoop-slave-2 ~]$ exit
+logout
+Connection to hadoop-slave-2 closed.
+[Devendra@hadoop-admin ~]$ ssh -i /home/Devendra/id_rsa hadoop-slave-3
+Last login: Mon Mar 30 16:04:15 2020 from hadoop-admin.us-central1-a.c.focal-baton-271917.internal
+
+
+
+for configuration management we will install "ansible" on one node(hadoop-admin).
+
+ansible installation.
+
+sudo yum install ansible -y 
+
+configure ansible hosts file: add host details
+cd /etc/ansible 
+[Devendra@hadoop-admin ansible]$ ls
+ansible.cfg  hosts  roles
+[Devendra@hadoop-admin ansible]$ sudo vim hosts
+
+How to use ansible:
+
+vim hosts
+[all]
+hadoop-admin      ansible_user=Devendra 
+hadoop-slave-1    ansible_user=Devendra
+hadoop-slave-2    ansible_user=Devendra
+hadoop-slave-3    ansible_user=Devendra
+
+check if ansible is working fine:
+
+[Devendra@hadoop-admin ~]$ ansible all -i /etc/ansible/hosts -m command -a "hostname -f" --become --private-key /home/Devendra/id_rsa
+hadoop-slave-1 | CHANGED | rc=0 >>
+hadoop-slave-1.us-central1-a.c.focal-baton-271917.internal
+hadoop-slave-2 | CHANGED | rc=0 >>
+hadoop-slave-2.us-central1-a.c.focal-baton-271917.internal
+hadoop-slave-3 | CHANGED | rc=0 >>
+hadoop-slave-3.us-central1-a.c.focal-baton-271917.internal
+hadoop-admin | CHANGED | rc=0 >>
+hadoop-admin.us-central1-a.c.focal-baton-271917.internal
+
+Now we will use script via ansible for pre-requisite.
+
+[Devendra@hadoop-admin ~]$ sudo mkdir /etc/ansible/scripts
+[Devendra@hadoop-admin ~]$ cd /etc/ansible/scripts/
+[Devendra@hadoop-admin scripts]$ pwd
+/etc/ansible/scripts
+[Devendra@hadoop-admin scripts]$ sudo vim clusterpre.sh
+
+
+#clusterpre.sh#
+sudo echo "vm.swappiness = 1" >> /etc/sysctl.conf	
+sudo sed -i 's/SELINUX=enforcing/SELINUX=disabled/' /etc/selinux/config
+sudo sed -i 's/SELINUX=enforcing/SELINUX=disabled/' /etc/sysconfig/selinux
+systemctl stop firewalld
+systemctl disable firewalld
+sudo yum  -y  install ntp
+sudo systemctl enable ntpd
+sudo systemctl start ntpd
+
+
+run clusterpre.sh on all hosts
+
+[Devendra@hadoop-admin scripts]$ ansible all -i /etc/ansible/hosts -m script -a "/etc/ansible/scripts/clusterpre.sh" --become --private-key /home/Devendra/id_rsa
+hadoop-slave-3 | CHANGED => {
+    "changed": true,
+    "rc": 0,
+    "stderr": "Shared connection to hadoop-slave-3 closed.\r\n",
+    "stderr_lines": [
+        "Shared connection to hadoop-slave-3 closed."
+    ],
+    "stdout": "Removed symlink /etc/systemd/system/multi-user.target.wants/firewalld.service.\r\nRemoved symlink /etc/systemd/system/dbus-org.fedoraproject.FirewallD1.service.\r\nLoaded plugins: fastestmirror\r\nLoading mirror speeds from cached hostfile\r\n * base: us.mirror.nsec.pt\r\n * epel: d2lzkl7pfhq30w.cloudfront.net\r\n * extras: linux-mirrors.fnal.gov\r\n * updates: mirror.steadfastnet.com\r\nPackage ntp-4.2.6p5-29.el7.centos.x86_64 already installed and latest version\r\nNothing to do\r\n",
+    "stdout_lines": [
+        "Removed symlink /etc/systemd/system/multi-user.target.wants/firewalld.service.",
+        "Removed symlink /etc/systemd/system/dbus-org.fedoraproject.FirewallD1.service.",
+        "Loaded plugins: fastestmirror",
+        "Loading mirror speeds from cached hostfile",
+        " * base: us.mirror.nsec.pt",
+        " * epel: d2lzkl7pfhq30w.cloudfront.net",
+        " * extras: linux-mirrors.fnal.gov",
+        " * updates: mirror.steadfastnet.com",
+        "Package ntp-4.2.6p5-29.el7.centos.x86_64 already installed and latest version",
+        "Nothing to do"
+    ]
+}
+hadoop-slave-2 | CHANGED => {
+    "changed": true,
+    "rc": 0,
+    "stderr": "Shared connection to hadoop-slave-2 closed.\r\n",
+    "stderr_lines": [
+        "Shared connection to hadoop-slave-2 closed."
+    ],
+    "stdout": "Removed symlink /etc/systemd/system/multi-user.target.wants/firewalld.service.\r\nRemoved symlink /etc/systemd/system/dbus-org.fedoraproject.FirewallD1.service.\r\nLoaded plugins: fastestmirror\r\nLoading mirror speeds from cached hostfile\r\n * base: www.gtlib.gatech.edu\r\n * epel: d2lzkl7pfhq30w.cloudfront.net\r\n * extras: linux-mirrors.fnal.gov\r\n * updates: mirror.steadfastnet.com\r\nPackage ntp-4.2.6p5-29.el7.centos.x86_64 already installed and latest version\r\nNothing to do\r\n",
+    "stdout_lines": [
+        "Removed symlink /etc/systemd/system/multi-user.target.wants/firewalld.service.",
+        "Removed symlink /etc/systemd/system/dbus-org.fedoraproject.FirewallD1.service.",
+        "Loaded plugins: fastestmirror",
+        "Loading mirror speeds from cached hostfile",
+        " * base: www.gtlib.gatech.edu",
+        " * epel: d2lzkl7pfhq30w.cloudfront.net",
+        " * extras: linux-mirrors.fnal.gov",
+        " * updates: mirror.steadfastnet.com",
+        "Package ntp-4.2.6p5-29.el7.centos.x86_64 already installed and latest version",
+        "Nothing to do"
+    ]
+}
+hadoop-slave-1 | CHANGED => {
+    "changed": true,
+    "rc": 0,
+    "stderr": "Shared connection to hadoop-slave-1 closed.\r\n",
+    "stderr_lines": [
+        "Shared connection to hadoop-slave-1 closed."
+    ],
+    "stdout": "Removed symlink /etc/systemd/system/multi-user.target.wants/firewalld.service.\r\nRemoved symlink /etc/systemd/system/dbus-org.fedoraproject.FirewallD1.service.\r\nLoaded plugins: fastestmirror\r\nLoading mirror speeds from cached hostfile\r\n * base: us.mirror.nsec.pt\r\n * epel: d2lzkl7pfhq30w.cloudfront.net\r\n * extras: linux-mirrors.fnal.gov\r\n * updates: mirror.steadfastnet.com\r\nPackage ntp-4.2.6p5-29.el7.centos.x86_64 already installed and latest version\r\nNothing to do\r\n",
+    "stdout_lines": [
+        "Removed symlink /etc/systemd/system/multi-user.target.wants/firewalld.service.",
+        "Removed symlink /etc/systemd/system/dbus-org.fedoraproject.FirewallD1.service.",
+        "Loaded plugins: fastestmirror",
+        "Loading mirror speeds from cached hostfile",
+        " * base: us.mirror.nsec.pt",
+        " * epel: d2lzkl7pfhq30w.cloudfront.net",
+        " * extras: linux-mirrors.fnal.gov",
+        " * updates: mirror.steadfastnet.com",
+        "Package ntp-4.2.6p5-29.el7.centos.x86_64 already installed and latest version",
+        "Nothing to do"
+    ]
+}
+hadoop-admin | CHANGED => {
+    "changed": true,
+    "rc": 0,
+    "stderr": "Shared connection to hadoop-admin closed.\r\n",
+    "stderr_lines": [
+        "Shared connection to hadoop-admin closed."
+    ],
+    "stdout": "Removed symlink /etc/systemd/system/multi-user.target.wants/firewalld.service.\r\nRemoved symlink /etc/systemd/system/dbus-org.fedoraproject.FirewallD1.service.\r\nLoaded plugins: fastestmirror\r\nLoading mirror speeds from cached hostfile\r\n * base: www.gtlib.gatech.edu\r\n * epel: mirror.colorado.edu\r\n * extras: linux-mirrors.fnal.gov\r\n * updates: mirror.steadfastnet.com\r\nPackage ntp-4.2.6p5-29.el7.centos.x86_64 already installed and latest version\r\nNothing to do\r\n",
+    "stdout_lines": [
+        "Removed symlink /etc/systemd/system/multi-user.target.wants/firewalld.service.",
+        "Removed symlink /etc/systemd/system/dbus-org.fedoraproject.FirewallD1.service.",
+        "Loaded plugins: fastestmirror",
+        "Loading mirror speeds from cached hostfile",
+        " * base: www.gtlib.gatech.edu",
+        " * epel: mirror.colorado.edu",
+        " * extras: linux-mirrors.fnal.gov",
+        " * updates: mirror.steadfastnet.com",
+        "Package ntp-4.2.6p5-29.el7.centos.x86_64 already installed and latest version",
+        "Nothing to do"
+    ]
+}
+
+# reboot every server to efect changes done.
+
+##disable-thp## create this script under /etc/init.d.
+cd /etc/init.d
+sudo vim disable-thp
+
+#!/bin/bash
+### BEGIN INIT INFO
+# Provides:          disable-thp
+# Required-Start:    $local_fs
+# Required-Stop:
+# X-Start-Before:    couchbase-server
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: Disable THP
+# Description:       disables Transparent Huge Pages (THP) on boot
+### END INIT INFO
+case $1 in
+start)
+  if [ -d /sys/kernel/mm/transparent_hugepage ]; then
+    echo 'never' > /sys/kernel/mm/transparent_hugepage/enabled
+    echo 'never' > /sys/kernel/mm/transparent_hugepage/defrag
+  elif [ -d /sys/kernel/mm/redhat_transparent_hugepage ]; then
+    echo 'never' > /sys/kernel/mm/redhat_transparent_hugepage/enabled
+    echo 'never' > /sys/kernel/mm/redhat_transparent_hugepage/defrag
+  else
+    return 0
+  fi
+;;
+esac
+************************************************************************
+distribute this script to other nodes also.
+
+[Devendra@hadoop-admin ~]$ ansible all -i /etc/ansible/hosts -m synchronize -a "src=/etc/init.d/disable-thp dest=/etc/init.d" --become --private-key /home/Devendra/id_rsa
+hadoop-slave-3 | CHANGED => {
+    "changed": true,
+    "cmd": "/usr/bin/rsync --delay-updates -F --compress --archive --rsh=/usr/bin/ssh -S none -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null --rsync-path=sudo rsync --out-format=<<CHANGED>>%i %n%L /etc/init.d/disable-thp Devendra@hadoop-slave-3:/etc/init.d",
+    "msg": "<f+++++++++ disable-thp\n",
+    "rc": 0,
+    "stdout_lines": [
+        "<f+++++++++ disable-thp"
+    ]
+}
+hadoop-slave-1 | CHANGED => {
+    "changed": true,
+    "cmd": "/usr/bin/rsync --delay-updates -F --compress --archive --rsh=/usr/bin/ssh -S none -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null --rsync-path=sudo rsync --out-format=<<CHANGED>>%i %n%L /etc/init.d/disable-thp Devendra@hadoop-slave-1:/etc/init.d",
+    "msg": "<f+++++++++ disable-thp\n",
+    "rc": 0,
+    "stdout_lines": [
+        "<f+++++++++ disable-thp"
+    ]
+}
+hadoop-admin | SUCCESS => {
+    "changed": false,
+    "cmd": "/usr/bin/rsync --delay-updates -F --compress --archive --rsh=/usr/bin/ssh -S none -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null --rsync-path=sudo rsync --out-format=<<CHANGED>>%i %n%L /etc/init.d/disable-thp Devendra@hadoop-admin:/etc/init.d",
+    "msg": "",
+    "rc": 0,
+    "stdout_lines": []
+}
+hadoop-slave-2 | CHANGED => {
+    "changed": true,
+    "cmd": "/usr/bin/rsync --delay-updates -F --compress --archive --rsh=/usr/bin/ssh -S none -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null --rsync-path=sudo rsync --out-format=<<CHANGED>>%i %n%L /etc/init.d/disable-thp Devendra@hadoop-slave-2:/etc/init.d",
+    "msg": "<f+++++++++ disable-thp\n",
+    "rc": 0,
+    "stdout_lines": [
+        "<f+++++++++ disable-thp"
+    ]
+}
+************************************************
+cd /etc/ansible/scripts
+sudo vim disable-thp.sh
+####disable-thp.sh#########
+
+sudo chmod 755 /etc/init.d/disable-thp
+sudo systemctl daemon-reload
+sudo systemctl start disable-thp.service
+sudo systemctl enable disable-thp.service
+cat /sys/kernel/mm/transparent_hugepage/enabled
+cat /sys/kernel/mm/transparent_hugepage/defrag
+
+run script:
+[Devendra@hadoop-admin scripts]$ ansible all -i /etc/ansible/hosts -m script -a "/etc/ansible/scripts/disable-thp.sh" --become --private-key /home/Devendra/id_rsa
+
+hadoop-slave-2 | CHANGED => {
+    "changed": true,
+    "rc": 0,
+    "stderr": "Shared connection to hadoop-slave-2 closed.\r\n",
+    "stderr_lines": [
+        "Shared connection to hadoop-slave-2 closed."
+    ],
+    "stdout": "disable-thp.service is not a native service, redirecting to /sbin/chkconfig.\r\nExecuting /sbin/chkconfig disable-thp on\r\nalways madvise [never]\r\nalways madvise [never]\r\n",
+    "stdout_lines": [
+        "disable-thp.service is not a native service, redirecting to /sbin/chkconfig.",
+        "Executing /sbin/chkconfig disable-thp on",
+        "always madvise [never]",
+        "always madvise [never]"
+    ]
+}
+hadoop-admin | CHANGED => {
+    "changed": true,
+    "rc": 0,
+    "stderr": "Shared connection to hadoop-admin closed.\r\n",
+    "stderr_lines": [
+        "Shared connection to hadoop-admin closed."
+    ],
+    "stdout": "disable-thp.service is not a native service, redirecting to /sbin/chkconfig.\r\nExecuting /sbin/chkconfig disable-thp on\r\nalways madvise [never]\r\nalways madvise [never]\r\n",
+    "stdout_lines": [
+        "disable-thp.service is not a native service, redirecting to /sbin/chkconfig.",
+        "Executing /sbin/chkconfig disable-thp on",
+        "always madvise [never]",
+        "always madvise [never]"
+    ]
+}
+hadoop-slave-3 | CHANGED => {
+    "changed": true,
+    "rc": 0,
+    "stderr": "Shared connection to hadoop-slave-3 closed.\r\n",
+    "stderr_lines": [
+        "Shared connection to hadoop-slave-3 closed."
+    ],
+    "stdout": "disable-thp.service is not a native service, redirecting to /sbin/chkconfig.\r\nExecuting /sbin/chkconfig disable-thp on\r\nalways madvise [never]\r\nalways madvise [never]\r\n",
+    "stdout_lines": [
+        "disable-thp.service is not a native service, redirecting to /sbin/chkconfig.",
+        "Executing /sbin/chkconfig disable-thp on",
+        "always madvise [never]",
+        "always madvise [never]"
+    ]
+}
+hadoop-slave-1 | CHANGED => {
+    "changed": true,
+    "rc": 0,
+    "stderr": "Shared connection to hadoop-slave-1 closed.\r\n",
+    "stderr_lines": [
+        "Shared connection to hadoop-slave-1 closed."
+    ],
+    "stdout": "disable-thp.service is not a native service, redirecting to /sbin/chkconfig.\r\nExecuting /sbin/chkconfig disable-thp on\r\nalways madvise [never]\r\nalways madvise [never]\r\n",
+    "stdout_lines": [
+        "disable-thp.service is not a native service, redirecting to /sbin/chkconfig.",
+        "Executing /sbin/chkconfig disable-thp on",
+        "always madvise [never]",
+        "always madvise [never]"
+    ]
+}
+************************************************************************************************
+
+setup httpd:
+
+We are setting up httpd to setup local yum repository server so that we don’t need to download repositories on to all nodes connecting to Cloudera repositories.
+If we have local yum repository server, setup will be faster as it will not use public internet.
+
+Connect to first server(hadoop-admin) --->  ssh -i id_rsa Devendra@146.148.62.12
+Run                                         sudo yum -y install httpd
+Enable on start up                          sudo systemctl enable httpd
+Start                                       sudo systemctl start httpd
+                                            Open port number 80
+
+configure httpd for parcels:
+
+sudo vim /etc/httpd/conf/httpd.conf
+# AddType allows you to add to or override the MIME configuration
+    #AddType application/x-gzip .tgz
+    AddType application/x-compress .Z
+    AddType application/x-gzip .gz .tgz
+    AddType application/x-gzip .gz .tgz .parcel     --> Add this line
+
+after enabling httpd ,try to access your server from your web-browser.If it is not opening ,
+then port for httpd service is not open.we have to create new firewall rule.
+
+steps--------->
+Click on more options for the first server
+Click on View network details , it will take you to VPC network
+Click on Firewall rules
+Click on Create a firewall rule
+Name: webports
+Change Target to All instances in the network
+Set Source IP range to 0.0.0.0/0
+Specified protocols and ports: tcp [80, 7180]
+Go to browser on the host and enter http://35.196.243.128 2 to see HTTP server is up
+**********************************************************************************************
+local yum repository -Cloudera Manager
+cd /etc/ansible/scripts
+sudo vim cloudera-repo-setup-yum-tools.sh
+
+###cloudera-repo-setup-yum-tools.sh###
+sudo yum -y install wget createrepo yum-utils
+sudo mkdir -p /var/www/html
+sudo systemctl restart httpd
+
+[Devendra@hadoop-admin scripts]$ ansible hadoop-admin -i /etc/ansible/hosts -m script -a "/etc/ansible/scripts/cloudera-repo-setup-yum-tools.sh" --become --private-key /home/Devendra/id_rsa
+
+**********************************************************************************************
+parcels based installation
+********************************************
+cloudera Manager:http://archive.cloudera.com/cm5/repo-as-tarball/5.14.1/
+
+sudo wget http://archive.cloudera.com/cm5/repo-as-tarball/5.14.1/cm5.14.1-centos7.tar.gz
+sudo tar zxvf cm5.14.1-centos7.tar.gz -C /var/www/html/
+
+####cloudera-manager.repo:##############
+
+sudo vim /etc/yum.repos.d/cloudera-manager.repo
+[cloudera-manager.repo]
+name=cloudera-manager.5.14.1
+baseurl=http://hadoop-admin/cm/5.14.1/
+gpgcheck=0
+
+Copy cloudera-manager.repo to other nodes (eg slave nodes):
+ansible all -i /etc/ansible/hosts -m synchronize -a "src=/etc/yum.repos.d/cloudera-manager.repo dest=/etc/yum.repos.d" --become --private-key /home/Devendra/id_rsa
+
+hadoop-admin | SUCCESS => {
+    "changed": false,
+    "cmd": "/usr/bin/rsync --delay-updates -F --compress --archive --rsh=/usr/bin/ssh -S none -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null --rsync-path=sudo rsync --out-format=<<CHANGED>>%i %n%L /etc/yum.repos.d/cloudera-manager.repo Devendra@hadoop-admin:/etc/yum.repos.d/",
+    "msg": "",
+    "rc": 0,
+    "stdout_lines": []
+}
+hadoop-slave-1 | CHANGED => {
+    "changed": true,
+    "cmd": "/usr/bin/rsync --delay-updates -F --compress --archive --rsh=/usr/bin/ssh -S none -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null --rsync-path=sudo rsync --out-format=<<CHANGED>>%i %n%L /etc/yum.repos.d/cloudera-manager.repo Devendra@hadoop-slave-1:/etc/yum.repos.d/",
+    "msg": "<f+++++++++ cloudera-manager.repo\n",
+    "rc": 0,
+    "stdout_lines": [
+        "<f+++++++++ cloudera-manager.repo"
+    ]
+}
+hadoop-slave-2 | CHANGED => {
+    "changed": true,
+    "cmd": "/usr/bin/rsync --delay-updates -F --compress --archive --rsh=/usr/bin/ssh -S none -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null --rsync-path=sudo rsync --out-format=<<CHANGED>>%i %n%L /etc/yum.repos.d/cloudera-manager.repo Devendra@hadoop-slave-2:/etc/yum.repos.d/",
+    "msg": "<f+++++++++ cloudera-manager.repo\n",
+    "rc": 0,
+    "stdout_lines": [
+        "<f+++++++++ cloudera-manager.repo"
+    ]
+}
+hadoop-slave-3 | CHANGED => {
+    "changed": true,
+    "cmd": "/usr/bin/rsync --delay-updates -F --compress --archive --rsh=/usr/bin/ssh -S none -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null --rsync-path=sudo rsync --out-format=<<CHANGED>>%i %n%L /etc/yum.repos.d/cloudera-manager.repo Devendra@hadoop-slave-3:/etc/yum.repos.d/",
+    "msg": "<f+++++++++ cloudera-manager.repo\n",
+    "rc": 0,
+    "stdout_lines": [
+        "<f+++++++++ cloudera-manager.repo"
+    ]
+}
+
+
+verify :ansible all -i /etc/ansible/hosts -m command -a "ls -lt /etc/yum.repos.d/" --become --private-key /home/Devendra/id_rsa
+
+ansible all -i /etc/ansible/hosts -a "yum makecache" --become  --private-key /home/Devendra/id_rsa
+ansible all -i /etc/ansible/hosts -a "yum clean all" --become  --private-key /home/Devendra/id_rsa
+ansible all -i /etc/ansible/hosts -a "yum repolist" --become  --private-key /home/Devendra/id_rsa
+
+###############################################
+CDH :  http://archive.cloudera.com/cdh5/parcels/5.14/
+cd /etc/ansible/scripts
+sudo vim cdh-parcels.sh 
+
+cd /var/www/html
+sudo mkdir cdh5.14.0
+cd cdh5.14.0
+sudo wget http://archive.cloudera.com/cdh5/parcels/5.14.0/CDH-5.14.0-1.cdh5.14.0.p0.24-el7.parcel
+sudo wget http://archive.cloudera.com/cdh5/parcels/5.14.0/manifest.json
+sudo chmod -R 777 /var/www/html/cdh5.14.0
+
+*****************************************************************************************************
+
+Install CM and CDH :Setup Pre-requisites
+
+install oracle jdk and cloudera manager-server packages:(cloudera -manager server)
+
+sudo yum install -y oracle-j2sdk1.7 cloudera-manager-daemons cloudera-manager-server cloudera-manager-agent
+
+Install mysql or maridb and configure it.
+cd /etc/ansible/scripts
+sudo vim mysql.sh
+######mysql.sh######
+sudo yum -y install mariadb-server mysql-connector-java
+sudo systemctl enable mariadb.service
+sudo systemctl start mariadb
+
+Run script:
+[Devendra@hadoop-admin scripts]$ ansible hadoop-admin -i /etc/ansible/hosts -m script -a "/etc/ansible/scripts/mysql.sh" --become --private-key /home/Devendra/id_rsa
+
+sudo /usr/bin/mysql_secure_installation
+
+NOTE: RUNNING ALL PARTS OF THIS SCRIPT IS RECOMMENDED FOR ALL MariaDB
+      SERVERS IN PRODUCTION USE!  PLEASE READ EACH STEP CAREFULLY!
+
+In order to log into MariaDB to secure it, we'll need the current
+password for the root user.  If you've just installed MariaDB, and
+you haven't set the root password yet, the password will be blank,
+so you should just press enter here.
+
+Enter current password for root (enter for none):
+OK, successfully used password, moving on...
+
+Setting the root password ensures that nobody can log into the MariaDB
+root user without the proper authorisation.
+
+Set root password? [Y/n] y
+New password:
+Re-enter new password:
+Password updated successfully!
+Reloading privilege tables..
+ ... Success!
+
+
+By default, a MariaDB installation has an anonymous user, allowing anyone
+to log into MariaDB without having to have a user account created for
+them.  This is intended only for testing, and to make the installation
+go a bit smoother.  You should remove them before moving into a
+production environment.
+
+Remove anonymous users? [Y/n] y
+ ... Success!
+
+Normally, root should only be allowed to connect from 'localhost'.  This
+ensures that someone cannot guess at the root password from the network.
+
+Disallow root login remotely? [Y/n] y
+ ... Success!
+
+By default, MariaDB comes with a database named 'test' that anyone can
+access.  This is also intended only for testing, and should be removed
+before moving into a production environment.
+
+Remove test database and access to it? [Y/n] y
+ - Dropping test database...
+ ... Success!
+ - Removing privileges on test database...
+ ... Success!
+
+Reloading the privilege tables will ensure that all changes made so far
+will take effect immediately.
+
+Reload privilege tables now? [Y/n] y
+ ... Success!
+
+Cleaning up...
+
+All done!  If you've completed all of the above steps, your MariaDB
+installation should now be secure.
+
+Thanks for using MariaDB!
+*********************************************************************
+login with root id and create temp user:
+
+mysql -uroot -proot
+create user 'temp'@'%' identified by 'temp';
+grant all privileges on *.* to 'temp'@'%' with grant option;
+flush privileges;
+exit;
+
+check user temp:
+mysql -utemp -ptemp
+
+Prepare scm database for cloudera manager:
+
+sudo /usr/share/cmf/schema/scm_prepare_database.sh mysql -h localhost -utemp -ptemp --scm-host localhost scm scm scm 
+
+output:
+[Devendra@hadoop-admin ~]$ sudo /usr/share/cmf/schema/scm_prepare_database.sh mysql -h localhost -utemp -ptemp --scm-host localhost scm scm scm
+JAVA_HOME=/usr/java/jdk1.7.0_67-cloudera/
+Verifying that we can write to /etc/cloudera-scm-server
+Creating SCM configuration file in /etc/cloudera-scm-server
+Executing:  /usr/java/jdk1.7.0_67-cloudera//bin/java -cp /usr/share/java/mysql-connector-java.jar:/usr/share/java/oracle-connector-java.jar:/usr/share/cmf/schema/../lib/* com.cloudera.enterprise.dbutil.DbCommandExecutor /etc/cloudera-scm-server/db.properties com.cloudera.cmf.db.
+[                          main] DbCommandExecutor              INFO  Successfully connected to database.
+All done, your SCM database is configured correctly!
+
+###################################################
+note: you may get error in this step.
+Error:
+Exception in thread "main" java.lang.UnsupportedClassVersionError: com/microsoft/sqlserver/jdbc/SQLServerDriver : Unsupported major.minor version 52.0
+	
+solution: set the  already present java version in " /etc/default/
+
+edit the cloudera-scm-server file :
+
+###################FILE-Content################################
+
+# Specify any command line arguments for the Cloudera SCM Server here.
+#
+export JAVA_HOME=/usr/java/jdk1.7.0_67-cloudera/   we need to add java path according to our java version present on system.
+#############################################################################################################
+sudo service cloudera-scm-server start
+sudo service cloudera-scm-server status
+sudo tail -f /var/log/cloudera-scm-server/cloudera-scm-server.log  ###if you get this line "WebServerImpl:org.mortbay.log: Started SelectChannelConnector@0.0.0.0:7180 then its started"
+netstat -tnlpu | grep -i 7180
+
+
+
+***************************************************************************************
+cloudera agent  installation:
+
+cd /etc/ansible/scripts
+sudo vim agent.sh 
+
+###agent.sh#####
+sudo yum install -y oracle-j2sdk1.7 cloudera-manager-daemons cloudera-manager-agent
+
+Run on all host execept cloudera mangager host: comment hadoop-admin line in hosts file :
+sudo vim /etc/ansible/hosts
+$ cat hosts
+[all]
+#hadoop-admin      ansible_user=Devendra
+hadoop-slave-1    ansible_user=Devendra
+hadoop-slave-2    ansible_user=Devendra
+hadoop-slave-3    ansible_user=Devendra
+
+[Devendra@hadoop-admin ansible]$ ansible all -i /etc/ansible/hosts -m script -a "/etc/ansible/scripts/agent.sh" --become --private-key /home/Devendra/id_rsa
+
+verify that all agent packages all installed:
+[Devendra@hadoop-admin ansible]$ ansible all -i /etc/ansible/hosts -m command -a "rpm -qa oracle-j2sdk1.7 cloudera-manager-daemons cloudera-manager-agent" --become --private-key /home/Devendra/id_rsa
+
+[WARNING]: Consider using the yum, dnf or zypper module rather than running 'rpm'.  If you need to use command because yum, dnf or zypper is insufficient you can add 'warn: false' to this
+command task or set 'command_warnings=False' in ansible.cfg to get rid of this message.
+hadoop-slave-1 | CHANGED | rc=0 >>
+cloudera-manager-daemons-5.16.2-1.cm5162.p0.7.el7.x86_64
+oracle-j2sdk1.7-1.7.0+update67-1.x86_64
+cloudera-manager-agent-5.16.2-1.cm5162.p0.7.el7.x86_64
+hadoop-slave-2 | CHANGED | rc=0 >>
+cloudera-manager-daemons-5.16.2-1.cm5162.p0.7.el7.x86_64
+oracle-j2sdk1.7-1.7.0+update67-1.x86_64
+cloudera-manager-agent-5.16.2-1.cm5162.p0.7.el7.x86_64
+hadoop-slave-3 | CHANGED | rc=0 >>
+oracle-j2sdk1.7-1.7.0+update67-1.x86_64
+cloudera-manager-daemons-5.16.2-1.cm5162.p0.7.el7.x86_64
+cloudera-manager-agent-5.16.2-1.cm5162.p0.7.el7.x86_64
+***************************************************************************
+configure cloudera agent servers:
+[Devendra@hadoop-admin ansible]$ cd /etc/ansible/scripts/
+[Devendra@hadoop-admin scripts]$ sudo vim agent-config.ini.sh
+
+#######agent-config.ini.sh######
+sudo sed -i s/localhost/hadoop-admin/g /etc/cloudera-scm-agent/config.ini
+sudo systemctl start cloudera-scm-agent
+sudo systemctl enable cloudera-scm-agent
+cat /etc/cloudera-scm-agent/config.ini | grep -i 'server_host'
+###################################################################
+Run script:
+
+[Devendra@hadoop-admin scripts]$ ansible all -i /etc/ansible/hosts -m script -a "/etc/ansible/scripts/agent-config.ini.sh" --become --private-key /home/Devendra/id_rsa
+hadoop-slave-3 | CHANGED => {
+    "changed": true,
+    "rc": 0,
+    "stderr": "Shared connection to hadoop-slave-3 closed.\r\n",
+    "stderr_lines": [
+        "Shared connection to hadoop-slave-3 closed."
+    ],
+    "stdout": "cloudera-scm-agent.service is not a native service, redirecting to /sbin/chkconfig.\r\nExecuting /sbin/chkconfig cloudera-scm-agent on\r\nActive Internet connections (only servers)\r\nProto Recv-Q Send-Q Local Address           Foreign Address         State       PID/Program name    \r\ntcp        0      0 0.0.0.0:22              0.0.0.0:*               LISTEN      1109/sshd           \r\ntcp        0      0 127.0.0.1:25            0.0.0.0:*               LISTEN      1070/master         \r\ntcp        0      0 0.0.0.0:111             0.0.0.0:*               LISTEN      1/systemd           \r\ntcp6       0      0 :::22                   :::*                    LISTEN      1109/sshd           \r\ntcp6       0      0 ::1:25                  :::*                    LISTEN      1070/master         \r\ntcp6       0      0 :::111                  :::*                    LISTEN      1/systemd           \r\nserver_host=hadoop-admin\r\n",
+    "stdout_lines": [
+        "cloudera-scm-agent.service is not a native service, redirecting to /sbin/chkconfig.",
+        "Executing /sbin/chkconfig cloudera-scm-agent on",
+        "Active Internet connections (only servers)",
+        "Proto Recv-Q Send-Q Local Address           Foreign Address         State       PID/Program name    ",
+        "tcp        0      0 0.0.0.0:22              0.0.0.0:*               LISTEN      1109/sshd           ",
+        "tcp        0      0 127.0.0.1:25            0.0.0.0:*               LISTEN      1070/master         ",
+        "tcp        0      0 0.0.0.0:111             0.0.0.0:*               LISTEN      1/systemd           ",
+        "tcp6       0      0 :::22                   :::*                    LISTEN      1109/sshd           ",
+        "tcp6       0      0 ::1:25                  :::*                    LISTEN      1070/master         ",
+        "tcp6       0      0 :::111                  :::*                    LISTEN      1/systemd           ",
+        "server_host=hadoop-admin"
+    ]
+}
+hadoop-slave-1 | CHANGED => {
+    "changed": true,
+    "rc": 0,
+    "stderr": "Shared connection to hadoop-slave-1 closed.\r\n",
+    "stderr_lines": [
+        "Shared connection to hadoop-slave-1 closed."
+    ],
+    "stdout": "cloudera-scm-agent.service is not a native service, redirecting to /sbin/chkconfig.\r\nExecuting /sbin/chkconfig cloudera-scm-agent on\r\nActive Internet connections (only servers)\r\nProto Recv-Q Send-Q Local Address           Foreign Address         State       PID/Program name    \r\ntcp        0      0 127.0.0.1:25            0.0.0.0:*               LISTEN      1066/master         \r\ntcp        0      0 0.0.0.0:111             0.0.0.0:*               LISTEN      1/systemd           \r\ntcp        0      0 0.0.0.0:22              0.0.0.0:*               LISTEN      1106/sshd           \r\ntcp6       0      0 ::1:25                  :::*                    LISTEN      1066/master         \r\ntcp6       0      0 :::111                  :::*                    LISTEN      1/systemd           \r\ntcp6       0      0 :::22                   :::*                    LISTEN      1106/sshd           \r\nserver_host=hadoop-admin\r\n",
+    "stdout_lines": [
+        "cloudera-scm-agent.service is not a native service, redirecting to /sbin/chkconfig.",
+        "Executing /sbin/chkconfig cloudera-scm-agent on",
+        "Active Internet connections (only servers)",
+        "Proto Recv-Q Send-Q Local Address           Foreign Address         State       PID/Program name    ",
+        "tcp        0      0 127.0.0.1:25            0.0.0.0:*               LISTEN      1066/master         ",
+        "tcp        0      0 0.0.0.0:111             0.0.0.0:*               LISTEN      1/systemd           ",
+        "tcp        0      0 0.0.0.0:22              0.0.0.0:*               LISTEN      1106/sshd           ",
+        "tcp6       0      0 ::1:25                  :::*                    LISTEN      1066/master         ",
+        "tcp6       0      0 :::111                  :::*                    LISTEN      1/systemd           ",
+        "tcp6       0      0 :::22                   :::*                    LISTEN      1106/sshd           ",
+        "server_host=hadoop-admin"
+    ]
+}
+hadoop-slave-2 | CHANGED => {
+    "changed": true,
+    "rc": 0,
+    "stderr": "Shared connection to hadoop-slave-2 closed.\r\n",
+    "stderr_lines": [
+        "Shared connection to hadoop-slave-2 closed."
+    ],
+    "stdout": "cloudera-scm-agent.service is not a native service, redirecting to /sbin/chkconfig.\r\nExecuting /sbin/chkconfig cloudera-scm-agent on\r\nActive Internet connections (only servers)\r\nProto Recv-Q Send-Q Local Address           Foreign Address         State       PID/Program name    \r\ntcp        0      0 127.0.0.1:25            0.0.0.0:*               LISTEN      1062/master         \r\ntcp        0      0 0.0.0.0:111             0.0.0.0:*               LISTEN      1/systemd           \r\ntcp        0      0 0.0.0.0:22              0.0.0.0:*               LISTEN      1100/sshd           \r\ntcp6       0      0 ::1:25                  :::*                    LISTEN      1062/master         \r\ntcp6       0      0 :::111                  :::*                    LISTEN      1/systemd           \r\ntcp6       0      0 :::22                   :::*                    LISTEN      1100/sshd           \r\nserver_host=hadoop-admin\r\n",
+    "stdout_lines": [
+        "cloudera-scm-agent.service is not a native service, redirecting to /sbin/chkconfig.",
+        "Executing /sbin/chkconfig cloudera-scm-agent on",
+        "Active Internet connections (only servers)",
+        "Proto Recv-Q Send-Q Local Address           Foreign Address         State       PID/Program name    ",
+        "tcp        0      0 127.0.0.1:25            0.0.0.0:*               LISTEN      1062/master         ",
+        "tcp        0      0 0.0.0.0:111             0.0.0.0:*               LISTEN      1/systemd           ",
+        "tcp        0      0 0.0.0.0:22              0.0.0.0:*               LISTEN      1100/sshd           ",
+        "tcp6       0      0 ::1:25                  :::*                    LISTEN      1062/master         ",
+        "tcp6       0      0 :::111                  :::*                    LISTEN      1/systemd           ",
+        "tcp6       0      0 :::22                   :::*                    LISTEN      1100/sshd           ",
+        "server_host=hadoop-admin"
+    ]
+}
+************************************************************************************************************
+My sql-connector installation and other required dbs creation:
+
+[Devendra@hadoop-admin scripts]$ ansible all -i /etc/ansible/hosts -m command -a "yum -y install mysql-connector-java" --become --private-key /home/Devendra/id_rsa
+
+mysql -uroot -proot
+
+create database reportmanager;
+create user 'reportmanager'@'%' identified by 'root';
+grant all privileges on reportmanager.* to 'reportmanager'@'%';
+
+create database hue;
+create user 'hue'@'%' identified by 'root';
+grant all privileges on hue.* to 'hue'@'%';
+
+
+create database hive;
+create user 'hive'@'%' identified by 'root';
+grant all privileges on hive.* to 'hive'@'%';
+
+create database oozie;
+create user 'oozie'@'%' identified by 'root';
+grant all privileges on oozie.* to 'oozie'@'%';
+
+create database sentry;
+create user 'sentry'@'%' identified by 'root';
+grant all privileges on sentry.* to 'sentry'@'%';
+
+flush privileges;
+#####################################
+check dbs:
+MariaDB [(none)]> show databases;
++--------------------+
+| Database           |
++--------------------+
+| information_schema |
+| hive               |
+| hue                |
+| mysql              |
+| oozie              |nbcv  
+| performance_schema |
+| reportmanager      |
+| scm                |
++--------------------+
+8 rows in set (0.03 sec)
+********************************************************
+Now login to cloudera-manager and continue with inatallation process
+*********************************************************************
+add local parcel repository path : /var/www/html/cdh5.14.0
+    Remote parcel repository URLs: http://hadoop-admin/cdh5.14.0 
+
+parcel will be show if correctly configured.select parcel and continue with the installation. 
+give required dbs credentials.
